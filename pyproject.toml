@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisperdrop"
+version = "0.1.0"
+description = "macOS menu bar app that auto-transcribes Voice Memo .m4a files via Deepgram Nova 3"
+requires-python = ">=3.11"
+dependencies = [
+    "rumps>=0.4.0",
+    "watchdog>=4.0",
+    "keyring>=25.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+whisperdrop = "whisperdrop.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
