@@ -1,55 +1,87 @@
 # Whisper Drop
 
-macOS menu bar app that watches a folder for Apple Voice Memo `.m4a` files and auto-transcribes them via Deepgram Nova 3.
+Watches a folder for Apple Voice Memo `.m4a` files and auto-transcribes them via Deepgram Nova 3. Drop a file, get Markdown out. Runs as a background service via LaunchAgent.
 
-Drop a file → get Markdown out. API key lives in macOS Keychain, never on disk.
+API key lives in macOS Keychain — never on disk.
 
-## Install
+## Setup (fresh machine)
 
 ```bash
-git clone <this-repo> && cd voice-memo-agent
+# 1. Clone and install
+git clone <this-repo> ~/code/voice-memo-agent
+cd ~/code/voice-memo-agent
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
+
+# 2. Store your Deepgram API key (goes straight into Keychain)
+python3 -c "from whisperdrop.keychain import set_api_key; set_api_key('YOUR_DEEPGRAM_KEY')"
+
+# 3. Start at login + start right now
+whisperdrop --install
+launchctl load ~/Library/LaunchAgents/com.whisperdrop.plist
 ```
 
-## Usage
+That's it. Drop `.m4a` files into `~/VoiceDrop/` and transcripts appear automatically.
 
-```bash
-whisperdrop              # Launch the menu bar app
-whisperdrop --install    # Start at login (LaunchAgent)
-whisperdrop --uninstall  # Remove login item
+Get a Deepgram API key at [console.deepgram.com](https://console.deepgram.com) if you don't have one. Each machine stores its own key in Keychain — no syncing, no export.
+
+## Folder layout
+
 ```
-
-On first launch, a dialog prompts for your Deepgram API key. Get one at [console.deepgram.com](https://console.deepgram.com).
-
-### Default folders
-
-| Folder | Purpose |
-|--------|---------|
-| `~/VoiceDrop/` | Drop `.m4a` files here |
-| `~/Transcripts/` | Markdown output lands here |
+~/VoiceDrop/
+├── *.m4a              ← drop files here
+├── Transcripts/       ← markdown output
+├── .processed/        ← archived originals
+└── .failed/           ← failed files (retry via whisperdrop --once)
+```
 
 Edit `~/.config/whisperdrop/config.toml` to change paths or transcription settings.
 
-### How it works
+## Commands
 
-1. Drop a `.m4a` into the watch folder (drag, AirDrop, whatever)
-2. Whisper Drop detects it, waits for the write to finish
-3. Sends it to Deepgram Nova 3 for transcription
-4. Writes a clean Markdown file with speaker labels and timestamps
-5. Moves the original to `~/VoiceDrop/.processed/`
-6. Sends a macOS notification
+```bash
+whisperdrop              # Watch folder and transcribe continuously
+whisperdrop --once       # Process existing files and exit
+whisperdrop --install    # Register as a login item (LaunchAgent)
+whisperdrop --uninstall  # Remove the login item
+```
 
-### Optional: ffmpeg
+## How it works
 
-If Deepgram rejects a file (rare edge case with iOS metadata), Whisper Drop will attempt to re-containerize it with `ffmpeg` if installed:
+1. File watcher (`watchdog` + macOS FSEvents) detects new `.m4a` — zero CPU when idle
+2. Waits for file size to stabilize (handles slow writes, AirDrop, etc.)
+3. POSTs audio to Deepgram Nova 3 with diarization + smart formatting
+4. Writes Markdown with YAML frontmatter (Obsidian/Logseq compatible) and speaker labels
+5. Archives original to `.processed/`
+6. On failure, quarantines to `.failed/` — run `whisperdrop --once` to retry
+
+## Logs
+
+```bash
+cat ~/.config/whisperdrop/stderr.log    # recent activity
+cat ~/.config/whisperdrop/whisperdrop.log  # full rotating log
+```
+
+## Manage the service
+
+```bash
+# Check if running
+launchctl list | grep whisperdrop
+
+# Restart
+launchctl unload ~/Library/LaunchAgents/com.whisperdrop.plist
+launchctl load ~/Library/LaunchAgents/com.whisperdrop.plist
+
+# Stop permanently
+whisperdrop --uninstall
+```
+
+## Optional: ffmpeg
+
+If Deepgram rejects a file (rare edge case with iOS metadata), Whisper Drop will re-containerize it with `ffmpeg` if installed:
 
 ```bash
 brew install ffmpeg
 ```
 
 Not required — only used as a fallback.
-
-## Second machine
-
-Clone the repo, `pip install -e .`, run `whisperdrop`. Enter your API key when prompted. Each machine stores its own key in Keychain.

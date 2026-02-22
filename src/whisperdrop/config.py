@@ -14,7 +14,7 @@ CONFIG_FILE = CONFIG_DIR / "config.toml"
 DEFAULTS = {
     "paths": {
         "watch_folder": "~/VoiceDrop",
-        "output_folder": "~/Transcripts",
+        "output_folder": "~/VoiceDrop/Transcripts",
     },
     "transcription": {
         "model": "nova-3",
@@ -33,7 +33,7 @@ DEFAULTS = {
 DEFAULT_TOML = """\
 [paths]
 watch_folder = "~/VoiceDrop"
-output_folder = "~/Transcripts"
+output_folder = "~/VoiceDrop/Transcripts"
 
 [transcription]
 model = "nova-3"

@@ -1,7 +1,8 @@
 """CLI entry point for Whisper Drop.
 
 Usage:
-    whisperdrop              Launch the menu bar app
+    whisperdrop              Watch folder and transcribe (headless)
+    whisperdrop --once       Process existing files and exit
     whisperdrop --install    Register as a login item (LaunchAgent)
     whisperdrop --uninstall  Remove the login item
 """
@@ -9,9 +10,12 @@ Usage:
 import argparse
 import logging
 import plistlib
+import signal
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from queue import Empty, Queue
 
 from .config import CONFIG_DIR, Config
 
@@ -57,10 +61,10 @@ def install_launch_agent():
 
     plist = {
         "Label": PLIST_LABEL,
-        "ProgramArguments": [python_path, "-m", "whisperdrop"],
+        "ProgramArguments": [python_path, "-m", "whisperdrop", "--watch"],
         "RunAtLoad": True,
-        "LimitLoadToSessionType": "Aqua",
-        "ProcessType": "Interactive",
+        "KeepAlive": {"SuccessfulExit": False},  # restart if it crashes
+        "ProcessType": "Background",
         "EnvironmentVariables": {
             "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
         },
@@ -91,13 +95,90 @@ def uninstall_launch_agent():
         print("No LaunchAgent found — nothing to remove.")
 
 
+# --- Headless watch mode ---
+
+def run_watch(config: Config):
+    """Run the watcher + transcriber headlessly (no GUI)."""
+    from .formatter import format_transcription, make_output_filename
+    from .keychain import get_api_key
+    from .transcriber import AuthError, TranscriptionError, transcribe
+    from .watcher import Watcher, archive_file, quarantine_file
+
+    logger = logging.getLogger(__name__)
+
+    api_key = get_api_key()
+    if not api_key:
+        logger.error("No API key set. Run: python3 -c \"from whisperdrop.keychain import set_api_key; set_api_key('YOUR_KEY')\"")
+        sys.exit(1)
+
+    queue: Queue = Queue()
+
+    # Process any .m4a files already in the folder on startup
+    for existing in sorted(config.watch_folder.glob("*.m4a")):
+        if not existing.name.startswith("."):
+            logger.info("Found existing file: %s", existing.name)
+            queue.put(existing)
+
+    watcher = Watcher(config.watch_folder, queue)
+    watcher.start()
+
+    # Graceful shutdown on Ctrl+C or SIGTERM
+    running = True
+
+    def stop(*_):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+
+    logger.info("Watching %s (headless mode, Ctrl+C to stop)", config.watch_folder)
+
+    while running:
+        try:
+            file_path = queue.get(timeout=1)
+        except Empty:
+            continue
+
+        # Re-read key each time in case it was updated
+        api_key = get_api_key()
+        if not api_key:
+            logger.error("API key missing, skipping %s", file_path.name)
+            continue
+
+        logger.info("Transcribing: %s", file_path.name)
+        try:
+            result = transcribe(file_path, api_key, config.transcription, config.max_retries)
+            md = format_transcription(result, file_path.name)
+            out = config.output_folder / make_output_filename(file_path.name)
+            out.write_text(md, encoding="utf-8")
+            archive_file(file_path, config.watch_folder)
+            logger.info("Done: %s", out.name)
+        except AuthError as e:
+            logger.error("Auth error: %s", e)
+            quarantine_file(file_path, config.watch_folder)
+        except TranscriptionError as e:
+            logger.error("Transcription failed: %s", e)
+            quarantine_file(file_path, config.watch_folder)
+        except Exception as e:
+            logger.exception("Unexpected error processing %s: %s", file_path.name, e)
+            quarantine_file(file_path, config.watch_folder)
+
+    watcher.stop()
+    logger.info("Stopped.")
+
+
 # --- Main ---
 
 def main():
     parser = argparse.ArgumentParser(
         prog="whisperdrop",
-        description="macOS menu bar voice memo transcription agent",
+        description="Voice memo transcription agent — watches a folder, transcribes .m4a files via Deepgram",
     )
+    parser.add_argument("--watch", action="store_true",
+                        help="Watch folder and transcribe continuously (default)")
+    parser.add_argument("--once", action="store_true",
+                        help="Process existing files and exit")
     parser.add_argument("--install", action="store_true",
                         help="Register as a login item (LaunchAgent)")
     parser.add_argument("--uninstall", action="store_true",
@@ -112,13 +193,16 @@ def main():
         uninstall_launch_agent()
         return
 
-    # Normal launch: start the menu bar app
     setup_logging()
     config = Config()
 
-    from .app import WhisperDropApp
-    app = WhisperDropApp(config)
-    app.run()
+    if args.once:
+        from .cli import main as cli_main
+        cli_main()
+        return
+
+    # Default: watch mode
+    run_watch(config)
 
 
 if __name__ == "__main__":
