@@ -1,6 +1,6 @@
 """Deepgram Nova 3 transcription via REST API.
 
-Sends raw .m4a audio as binary POST to /v1/listen.
+Sends audio as binary POST to /v1/listen.
 Retries on network errors and 429s. Optional ffmpeg fallback if Deepgram
 rejects the file (400) and ffmpeg is available.
 """
@@ -18,6 +18,24 @@ logger = logging.getLogger(__name__)
 
 DEEPGRAM_URL = "https://api.deepgram.com/v1/listen"
 
+# Supported audio formats: extension -> MIME type
+SUPPORTED_FORMATS = {
+    ".m4a": "audio/mp4",
+    ".mp4": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/opus",
+    ".webm": "audio/webm",
+    ".flac": "audio/flac",
+}
+
+
+def get_content_type(file_path: Path) -> str:
+    """Get the MIME type for an audio file based on extension."""
+    ext = file_path.suffix.lower()
+    return SUPPORTED_FORMATS.get(ext, "audio/mpeg")  # default fallback
+
 
 class TranscriptionError(Exception):
     """Raised when transcription fails after all retries."""
@@ -30,10 +48,10 @@ class AuthError(TranscriptionError):
 
 
 def transcribe(file_path: Path, api_key: str, config: dict, max_retries: int = 3) -> dict:
-    """Transcribe an .m4a file via Deepgram.
+    """Transcribe an audio file via Deepgram.
 
     Args:
-        file_path: Path to the .m4a file
+        file_path: Path to the audio file (m4a, ogg, mp3, wav, etc.)
         api_key: Deepgram API key
         config: Transcription settings dict (model, diarize, etc.)
         max_retries: Maximum retry attempts for transient errors
@@ -55,9 +73,10 @@ def transcribe(file_path: Path, api_key: str, config: dict, max_retries: int = 3
     }
 
     audio_data = file_path.read_bytes()
+    content_type = get_content_type(file_path)
 
     # Try the raw file first
-    result = _post_with_retry(audio_data, api_key, params, max_retries)
+    result = _post_with_retry(audio_data, api_key, params, max_retries, content_type)
     if result is not None:
         return result
 
@@ -77,7 +96,7 @@ def transcribe(file_path: Path, api_key: str, config: dict, max_retries: int = 3
 
     try:
         audio_data = recontainerized.read_bytes()
-        result = _post_with_retry(audio_data, api_key, params, max_retries=1)
+        result = _post_with_retry(audio_data, api_key, params, max_retries=1, content_type=content_type)
         if result is not None:
             return result
         raise TranscriptionError(
@@ -87,7 +106,7 @@ def transcribe(file_path: Path, api_key: str, config: dict, max_retries: int = 3
         recontainerized.unlink(missing_ok=True)
 
 
-def _post_with_retry(audio_data: bytes, api_key: str, params: dict, max_retries: int) -> dict | None:
+def _post_with_retry(audio_data: bytes, api_key: str, params: dict, max_retries: int, content_type: str = "audio/mpeg") -> dict | None:
     """POST audio to Deepgram with retry logic.
 
     Returns the response dict on success, None if the file was rejected (400).
@@ -102,7 +121,7 @@ def _post_with_retry(audio_data: bytes, api_key: str, params: dict, max_retries:
                     params=params,
                     headers={
                         "Authorization": f"Token {api_key}",
-                        "Content-Type": "audio/mp4",
+                        "Content-Type": content_type,
                     },
                     content=audio_data,
                 )

@@ -1,11 +1,11 @@
-"""Quick CLI transcription — processes all .m4a files in the watch folder."""
+"""Quick CLI transcription — processes all audio files in the watch folder."""
 
 from pathlib import Path
 
 from .config import Config
 from .formatter import format_transcription, make_output_filename
 from .keychain import get_api_key
-from .transcriber import transcribe
+from .transcriber import SUPPORTED_FORMATS, transcribe
 from .watcher import archive_file
 
 
@@ -17,9 +17,14 @@ def main():
         print('  python3 -c "from whisperdrop.keychain import set_api_key; set_api_key(\'YOUR_KEY\')"')
         return
 
-    files = sorted(config.watch_folder.glob("*.m4a"))
+    # Collect all supported audio files
+    files = []
+    for ext in SUPPORTED_FORMATS.keys():
+        files.extend(config.watch_folder.glob(f"*{ext}"))
+    files = sorted(set(files))  # dedupe and sort
+    
     if not files:
-        print(f"No .m4a files in {config.watch_folder}")
+        print(f"No audio files in {config.watch_folder}")
         return
 
     for f in files:

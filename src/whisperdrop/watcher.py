@@ -1,4 +1,4 @@
-"""File system watcher for incoming .m4a voice memos.
+"""File system watcher for incoming voice memos.
 
 Uses watchdog with macOS FSEvents for instant detection.
 Handles both on_created (normal drops) and on_moved (AirDrop / browser downloads).
@@ -16,6 +16,9 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 logger = logging.getLogger(__name__)
+
+# Supported audio extensions (must match transcriber.SUPPORTED_FORMATS)
+SUPPORTED_EXTENSIONS = {".m4a", ".mp4", ".mp3", ".wav", ".ogg", ".opus", ".webm", ".flac"}
 
 
 class M4AHandler(FileSystemEventHandler):
@@ -41,8 +44,8 @@ class M4AHandler(FileSystemEventHandler):
     def _handle(self, path_str: str):
         path = Path(path_str)
 
-        # Filter: .m4a only, skip dotfiles and files in .processed/
-        if path.suffix.lower() != ".m4a":
+        # Filter: supported audio formats only, skip dotfiles and files in .processed/
+        if path.suffix.lower() not in SUPPORTED_EXTENSIONS:
             return
         if path.name.startswith("."):
             return
@@ -130,7 +133,7 @@ def retry_failed(watch_folder: Path) -> int:
         return 0
     count = 0
     for f in failed_dir.iterdir():
-        if f.suffix.lower() == ".m4a" and not f.name.startswith("."):
+        if f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith("."):
             dest = watch_folder / f.name
             # Avoid overwriting an existing file in the watch folder
             if dest.exists():
@@ -147,12 +150,12 @@ def retry_failed(watch_folder: Path) -> int:
 
 
 def count_failed(watch_folder: Path) -> int:
-    """Count .m4a files in .failed/."""
+    """Count audio files in .failed/."""
     failed_dir = watch_folder / ".failed"
     if not failed_dir.exists():
         return 0
     return sum(1 for f in failed_dir.iterdir()
-               if f.suffix.lower() == ".m4a" and not f.name.startswith("."))
+               if f.suffix.lower() in SUPPORTED_EXTENSIONS and not f.name.startswith("."))
 
 
 class Watcher:

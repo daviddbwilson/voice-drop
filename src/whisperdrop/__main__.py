@@ -101,7 +101,7 @@ def run_watch(config: Config):
     """Run the watcher + transcriber headlessly (no GUI)."""
     from .formatter import format_transcription, make_output_filename
     from .keychain import get_api_key
-    from .transcriber import AuthError, TranscriptionError, transcribe
+    from .transcriber import AuthError, TranscriptionError, SUPPORTED_FORMATS, transcribe
     from .watcher import Watcher, archive_file, quarantine_file
 
     logger = logging.getLogger(__name__)
@@ -113,8 +113,11 @@ def run_watch(config: Config):
 
     queue: Queue = Queue()
 
-    # Process any .m4a files already in the folder on startup
-    for existing in sorted(config.watch_folder.glob("*.m4a")):
+    # Process any audio files already in the folder on startup
+    existing_files = []
+    for ext in SUPPORTED_FORMATS.keys():
+        existing_files.extend(config.watch_folder.glob(f"*{ext}"))
+    for existing in sorted(set(existing_files)):
         if not existing.name.startswith("."):
             logger.info("Found existing file: %s", existing.name)
             queue.put(existing)

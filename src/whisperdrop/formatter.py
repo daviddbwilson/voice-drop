@@ -14,7 +14,7 @@ def format_transcription(deepgram_response: dict, source_filename: str) -> str:
 
     Args:
         deepgram_response: Full Deepgram API response dict
-        source_filename: Original .m4a filename (used for title)
+        source_filename: Original audio filename (used for title)
 
     Returns:
         Complete Markdown string with YAML frontmatter and body
