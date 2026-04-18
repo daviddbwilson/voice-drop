@@ -1,4 +1,4 @@
-# Whisper Drop
+# Voice Drop
 
 Watches a folder for Apple Voice Memo `.m4a` files and auto-transcribes them via Deepgram Nova 3. Drop a file, get Markdown out. Runs as a background service via LaunchAgent.
 
