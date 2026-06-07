@@ -15,6 +15,12 @@ DEFAULTS = {
     "paths": {
         "watch_folder": "~/VoiceDrop",
         "output_folder": "~/VoiceDrop/Transcripts",
+        # Folders watched in addition to watch_folder. Files here are
+        # transcribed in place and never moved (see watcher.WatchFolder).
+        "extra_watch_folders": ["~/Downloads"],
+        # Extensions picked up from extra_watch_folders (a narrower set than
+        # the primary folder, since Downloads holds lots of unrelated audio).
+        "extra_watch_extensions": [".m4a", ".qta"],
     },
     "transcription": {
         "model": "nova-3",
@@ -23,6 +29,11 @@ DEFAULTS = {
         "smart_format": True,
         "paragraphs": True,
         "utterances": True,
+    },
+    "cleanup": {
+        # Light-touch transcript cleanup via the headless `claude` CLI.
+        "enabled": True,
+        "model": "sonnet",
     },
     "behavior": {
         "notification_on_complete": True,
@@ -34,6 +45,9 @@ DEFAULT_TOML = """\
 [paths]
 watch_folder = "~/VoiceDrop"
 output_folder = "~/VoiceDrop/Transcripts"
+# Extra folders are transcribed in place — originals are never moved.
+extra_watch_folders = ["~/Downloads"]
+extra_watch_extensions = [".m4a", ".qta"]
 
 [transcription]
 model = "nova-3"
@@ -42,6 +56,11 @@ diarize = true
 smart_format = true
 paragraphs = true
 utterances = true
+
+[cleanup]
+# Lightly clean transcripts with the headless `claude` CLI (latest Sonnet).
+enabled = true
+model = "sonnet"
 
 [behavior]
 notification_on_complete = true
@@ -88,6 +107,23 @@ class Config:
     @property
     def output_folder(self) -> Path:
         return Path(self._data["paths"]["output_folder"]).expanduser()
+
+    @property
+    def extra_watch_folders(self) -> list[Path]:
+        return [Path(p).expanduser() for p in self._data["paths"].get("extra_watch_folders", [])]
+
+    @property
+    def extra_watch_extensions(self) -> frozenset[str]:
+        exts = self._data["paths"].get("extra_watch_extensions", [])
+        return frozenset(e.lower() for e in exts)
+
+    @property
+    def cleanup_enabled(self) -> bool:
+        return self._data["cleanup"]["enabled"]
+
+    @property
+    def cleanup_model(self) -> str:
+        return self._data["cleanup"]["model"]
 
     @property
     def transcription(self) -> dict:

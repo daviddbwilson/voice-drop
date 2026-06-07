@@ -99,10 +99,12 @@ def uninstall_launch_agent():
 
 def run_watch(config: Config):
     """Run the watcher + transcriber headlessly (no GUI)."""
-    from .formatter import format_transcription, make_output_filename
+    from . import notify
     from .keychain import get_api_key
-    from .transcriber import AuthError, TranscriptionError, SUPPORTED_FORMATS, transcribe
-    from .watcher import Watcher, archive_file, quarantine_file
+    from .ledger import Ledger
+    from .pipeline import process_file
+    from .transcriber import TranscriptionError
+    from .watcher import Watcher, build_watch_folders, finalize_failure, finalize_success, prime_queue
 
     logger = logging.getLogger(__name__)
 
@@ -112,17 +114,12 @@ def run_watch(config: Config):
         sys.exit(1)
 
     queue: Queue = Queue()
+    ledger = Ledger(CONFIG_DIR / "processed.json")
+    folders = build_watch_folders(config)
 
-    # Process any audio files already in the folder on startup
-    existing_files = []
-    for ext in SUPPORTED_FORMATS.keys():
-        existing_files.extend(config.watch_folder.glob(f"*{ext}"))
-    for existing in sorted(set(existing_files)):
-        if not existing.name.startswith("."):
-            logger.info("Found existing file: %s", existing.name)
-            queue.put(existing)
+    prime_queue(folders, queue, ledger)
 
-    watcher = Watcher(config.watch_folder, queue)
+    watcher = Watcher(folders, queue, ledger)
     watcher.start()
 
     # Graceful shutdown on Ctrl+C or SIGTERM
@@ -135,37 +132,36 @@ def run_watch(config: Config):
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
 
-    logger.info("Watching %s (headless mode, Ctrl+C to stop)", config.watch_folder)
+    logger.info("Watching headlessly (Ctrl+C to stop)")
 
     while running:
         try:
-            file_path = queue.get(timeout=1)
+            job = queue.get(timeout=1)
         except Empty:
             continue
 
         # Re-read key each time in case it was updated
         api_key = get_api_key()
         if not api_key:
-            logger.error("API key missing, skipping %s", file_path.name)
+            logger.error("API key missing, skipping %s", job.path.name)
             continue
 
-        logger.info("Transcribing: %s", file_path.name)
+        logger.info("Transcribing: %s", job.path.name)
         try:
-            result = transcribe(file_path, api_key, config.transcription, config.max_retries)
-            md = format_transcription(result, file_path.name)
-            out = config.output_folder / make_output_filename(file_path.name)
-            out.write_text(md, encoding="utf-8")
-            archive_file(file_path, config.watch_folder)
-            logger.info("Done: %s", out.name)
-        except AuthError as e:
-            logger.error("Auth error: %s", e)
-            quarantine_file(file_path, config.watch_folder)
+            out = process_file(job, config, api_key)
         except TranscriptionError as e:
-            logger.error("Transcription failed: %s", e)
-            quarantine_file(file_path, config.watch_folder)
-        except Exception as e:
-            logger.exception("Unexpected error processing %s: %s", file_path.name, e)
-            quarantine_file(file_path, config.watch_folder)
+            logger.error("Transcription failed for %s: %s", job.path.name, e)
+            finalize_failure(job)
+            continue
+        except Exception:
+            logger.exception("Unexpected error processing %s", job.path.name)
+            finalize_failure(job)
+            continue
+
+        finalize_success(job, ledger)
+        logger.info("Done: %s", out.name)
+        if config.notification_on_complete:
+            notify.transcription_complete(out)
 
     watcher.stop()
     logger.info("Stopped.")
