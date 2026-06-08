@@ -13,7 +13,7 @@ caller's responsibility (see watcher.finalize_success / finalize_failure).
 import logging
 from pathlib import Path
 
-from .cleanup import clean_transcript
+from .cleanup import clean_to_file
 from .config import Config
 from .formatter import format_transcription, make_output_filename
 from .transcriber import transcribe
@@ -32,17 +32,21 @@ def process_file(job: Job, config: Config, api_key: str) -> Path:
 
     canonical = config.output_folder / make_output_filename(job.path.name)
 
-    cleaned = None
-    if config.cleanup_enabled:
-        cleaned = clean_transcript(markdown, config.cleanup_model, config.output_folder)
-
-    if cleaned is not None:
-        raw_path = canonical.with_name(f"{canonical.stem}.raw{canonical.suffix}")
-        raw_path.write_text(markdown, encoding="utf-8")
-        canonical.write_text(cleaned, encoding="utf-8")
-        logger.info("Wrote %s (+ %s)", canonical.name, raw_path.name)
-    else:
+    if not config.cleanup_enabled:
         canonical.write_text(markdown, encoding="utf-8")
         logger.info("Wrote %s", canonical.name)
+        return canonical
+
+    # Write the verbatim transcript first, then let claude write the cleaned
+    # canonical file from it. If cleanup doesn't produce a valid file, promote
+    # the raw transcript to canonical so there's always exactly one output.
+    raw_path = canonical.with_name(f"{canonical.stem}.raw{canonical.suffix}")
+    raw_path.write_text(markdown, encoding="utf-8")
+
+    if clean_to_file(raw_path, canonical, config.cleanup_model, config.cleanup_vault):
+        logger.info("Wrote %s (cleaned) + %s", canonical.name, raw_path.name)
+    else:
+        raw_path.replace(canonical)
+        logger.info("Wrote %s (raw; cleanup skipped/failed)", canonical.name)
 
     return canonical

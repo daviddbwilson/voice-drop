@@ -11,7 +11,7 @@ macOS menu bar app that watches a folder for `.m4a` voice memos and auto-transcr
 - **`ledger.py`** — persistent JSON record of transcribed files for "in place" folders (dedup without moving)
 - **`transcriber.py`** — POST binary to Deepgram REST API, retry with backoff, optional ffmpeg fallback
 - **`formatter.py`** — Deepgram JSON → Markdown with YAML frontmatter and speaker labels
-- **`cleanup.py`** — light-touch transcript cleanup via the headless `claude` CLI (best-effort, falls back to raw)
+- **`cleanup.py`** — light-touch transcript cleanup via the headless `claude` CLI; `claude` writes the cleaned file itself with read-only vault access (best-effort, falls back to raw)
 - **`pipeline.py`** — shared per-file pipeline: transcribe → format → (clean) → write; used by both entry points
 - **`notify.py`** — macOS "transcript ready" notification (`terminal-notifier` reveal-on-click, `osascript` fallback)
 - **`app.py`** — `rumps.App` menu bar UI, threading, notifications
@@ -22,7 +22,7 @@ macOS menu bar app that watches a folder for `.m4a` voice memos and auto-transcr
 - **Two kinds of watched folder**: the primary `~/VoiceDrop` *archives* originals to `.processed/`; `extra_watch_folders` (e.g. `~/Downloads`) are watched *in place* — originals never move.
 - **Dedup**: archive folders dedup via the move-to-archive (no state); in-place folders dedup via the persistent `ledger.py`. The startup backlog in in-place folders is seeded as already-seen, so only newly-arriving files get transcribed.
 - **Cleaned is canonical**: when cleanup runs, the cleaned transcript is `<name>.md` and the verbatim one is kept as `<name>.raw.md`. The completion notification fires only after the cleaned file exists and points at it.
-- **Cleanup is light + best-effort**: latest Sonnet via headless `claude`; mainly resolves `Speaker N` → real names on explicit self-identification. Any failure leaves the raw transcript untouched.
+- **Cleanup is light + best-effort**: latest Sonnet via headless `claude`, which *writes the cleaned file itself* (Write tool) with read-only access to the Obsidian vault (`[cleanup] vault`, default `~/vault`) plus `~/.claude/CLAUDE.md`. Mainly resolves `Speaker N` → real names on explicit self-identification, with a feather-light grammar pass. Non-interactive (only Read/Glob/Grep/Write allowed; everything else denied) and timeout-bounded. Any failure promotes the raw transcript to canonical.
 - **Stable-size debounce**: Check file size twice 1s apart instead of fixed timer — handles large files and slow transfers
 - **ffmpeg truly optional**: Only attempted if Deepgram rejects the raw file AND ffmpeg is installed
 - **API key never touches disk**: Keychain only, never logged, never in config

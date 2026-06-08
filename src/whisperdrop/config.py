@@ -34,6 +34,9 @@ DEFAULTS = {
         # Light-touch transcript cleanup via the headless `claude` CLI.
         "enabled": True,
         "model": "sonnet",
+        # Obsidian vault granted read-only access during cleanup (for names /
+        # context). Set to "" to keep cleanup a pure text transform with no tools.
+        "vault": "~/vault",
     },
     "behavior": {
         "notification_on_complete": True,
@@ -61,6 +64,9 @@ utterances = true
 # Lightly clean transcripts with the headless `claude` CLI (latest Sonnet).
 enabled = true
 model = "sonnet"
+# Obsidian vault granted read-only access during cleanup (names / context).
+# Set to "" to keep cleanup a pure text transform with no file access.
+vault = "~/vault"
 
 [behavior]
 notification_on_complete = true
@@ -124,6 +130,11 @@ class Config:
     @property
     def cleanup_model(self) -> str:
         return self._data["cleanup"]["model"]
+
+    @property
+    def cleanup_vault(self) -> Path | None:
+        v = self._data["cleanup"].get("vault", "").strip()
+        return Path(v).expanduser() if v else None
 
     @property
     def transcription(self) -> dict:

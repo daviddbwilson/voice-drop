@@ -49,11 +49,19 @@ tracked in `~/.config/whisperdrop/processed.json`.
 
 If the `claude` CLI is installed and `[cleanup] enabled = true` (the default), each
 transcript gets a light cleanup pass with the latest Sonnet — mainly turning
-`Speaker N` labels into real names when a speaker clearly identifies themselves. The
-cleaned file is the canonical `*.md`; the verbatim transcript is kept as `*.raw.md`.
-Cleanup is best-effort: if `claude` is missing or errors, you just get the raw
-transcript. The notification fires once the cleaned file is ready and (with
-`terminal-notifier` installed) reveals it in Finder when clicked.
+`Speaker N` labels into real names when a speaker clearly identifies themselves, plus
+a feather-light grammar / obvious-mis-transcription touch-up (it leaves anything
+uncertain alone). `claude` writes the cleaned file itself: the cleaned `*.md` is
+canonical and the verbatim transcript is kept as `*.raw.md`.
+
+`claude` is granted **read-only** access to your Obsidian vault (`[cleanup] vault`,
+default `~/vault`) plus its own write tool, so it can resolve names/terms from your
+notes; anything else is denied, so the run stays unattended. Set `vault = ""` to keep
+cleanup a pure transform with no file access. It also picks up `~/.claude/CLAUDE.md`.
+
+Cleanup is best-effort: if `claude` is missing, times out, or doesn't produce a valid
+file, you just get the raw transcript. The notification fires once the canonical file
+is ready and (with `terminal-notifier` installed) reveals it in Finder when clicked.
 
 ## Commands
 
