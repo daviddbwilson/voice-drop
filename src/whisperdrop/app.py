@@ -8,17 +8,25 @@ watcher and transcription pipeline in background threads.
 import logging
 import subprocess
 import threading
-from pathlib import Path
 from queue import Empty, Queue
 
 import AppKit
 import rumps
 
-from . import keychain
-from .config import Config
-from .formatter import format_transcription, make_output_filename
-from .transcriber import AuthError, TranscriptionError, transcribe
-from .watcher import Watcher, archive_file, count_failed, quarantine_file, retry_failed
+from . import keychain, notify
+from .config import CONFIG_DIR, Config
+from .ledger import Ledger
+from .pipeline import process_file
+from .transcriber import AuthError, TranscriptionError
+from .watcher import (
+    Watcher,
+    build_watch_folders,
+    count_failed,
+    finalize_failure,
+    finalize_success,
+    prime_queue,
+    retry_failed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +43,7 @@ class WhisperDropApp(rumps.App):
         super().__init__(ICON_IDLE, quit_button=None)
         self.config = config
         self.queue: Queue = Queue()
+        self.ledger = Ledger(CONFIG_DIR / "processed.json")
         self.watcher: Watcher | None = None
         self._active_count = 0  # Number of files currently being processed
         self._active_lock = threading.Lock()
@@ -67,8 +76,10 @@ class WhisperDropApp(rumps.App):
         if not keychain.has_api_key():
             self._prompt_api_key()
 
-        # Start the file watcher
-        self.watcher = Watcher(self.config.watch_folder, self.queue)
+        # Start the file watcher across all configured folders
+        folders = build_watch_folders(self.config)
+        prime_queue(folders, self.queue, self.ledger)
+        self.watcher = Watcher(folders, self.queue, self.ledger)
         self.watcher.start()
         self._timer.start()
         logger.info("Whisper Drop started")
@@ -80,53 +91,31 @@ class WhisperDropApp(rumps.App):
             return
 
         try:
-            file_path = self.queue.get_nowait()
+            job = self.queue.get_nowait()
         except Empty:
             return
 
         # Process in a background thread to keep UI responsive
-        threading.Thread(target=self._process_file, args=(file_path,), daemon=True).start()
+        threading.Thread(target=self._process_file, args=(job,), daemon=True).start()
 
-    def _process_file(self, file_path: Path):
-        """Transcribe a single file and write the output."""
+    def _process_file(self, job):
+        """Transcribe a single queued file and write the output."""
         api_key = keychain.get_api_key()
         if not api_key:
             # Shouldn't happen (checked in _poll_queue), but re-queue defensively
-            self.queue.put(file_path)
+            self.queue.put(job)
             return
 
         with self._active_lock:
             self._active_count += 1
             self.title = ICON_PROCESSING
-        logger.info("Transcribing: %s", file_path.name)
+        logger.info("Transcribing: %s", job.path.name)
 
         try:
-            result = transcribe(
-                file_path, api_key,
-                self.config.transcription,
-                self.config.max_retries,
-            )
-
-            # Format and write output
-            markdown = format_transcription(result, file_path.name)
-            output_name = make_output_filename(file_path.name)
-            output_path = self.config.output_folder / output_name
-            output_path.write_text(markdown, encoding="utf-8")
-            logger.info("Written: %s", output_path)
-
-            # Archive the source file
-            archive_file(file_path, self.config.watch_folder)
-
-            # Notify
-            if self.config.notification_on_complete:
-                rumps.notification(
-                    "Whisper Drop", "Transcription Complete",
-                    f"{file_path.stem} → {output_name}",
-                )
-
+            output_path = process_file(job, self.config, api_key)
         except AuthError as e:
             logger.error("Auth error: %s", e)
-            quarantine_file(file_path, self.config.watch_folder)
+            finalize_failure(job)
             rumps.notification(
                 "Whisper Drop", "Invalid API Key",
                 "Your Deepgram API key is invalid. Update it via the menu bar.",
@@ -134,20 +123,26 @@ class WhisperDropApp(rumps.App):
             self._update_retry_menu()
         except TranscriptionError as e:
             logger.error("Transcription error: %s", e)
-            quarantine_file(file_path, self.config.watch_folder)
+            finalize_failure(job)
             rumps.notification(
                 "Whisper Drop", "Transcription Failed",
-                f"{file_path.stem}: {str(e)[:150]}. Use Retry Failed to try again.",
+                f"{job.path.stem}: {str(e)[:150]}. Use Retry Failed to try again.",
             )
             self._update_retry_menu()
         except Exception as e:
-            logger.exception("Unexpected error processing %s", file_path.name)
-            quarantine_file(file_path, self.config.watch_folder)
+            logger.exception("Unexpected error processing %s", job.path.name)
+            finalize_failure(job)
             rumps.notification(
                 "Whisper Drop", "Error",
-                f"Failed to process {file_path.name}: {e}",
+                f"Failed to process {job.path.name}: {e}",
             )
             self._update_retry_menu()
+        else:
+            # Only archive/record and notify when transcription truly succeeded,
+            # so a finalize error can't be mistaken for a transcription failure.
+            finalize_success(job, self.ledger)
+            if self.config.notification_on_complete:
+                notify.transcription_complete(output_path)
         finally:
             with self._active_lock:
                 self._active_count -= 1

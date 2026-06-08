@@ -30,12 +30,38 @@ Get a Deepgram API key at [console.deepgram.com](https://console.deepgram.com) i
 ```
 ~/VoiceDrop/
 ├── *.m4a              ← drop files here
-├── Transcripts/       ← markdown output
+├── Transcripts/       ← markdown output (*.md cleaned, *.raw.md verbatim)
 ├── .processed/        ← archived originals
 └── .failed/           ← failed files (retry via whisperdrop --once)
 ```
 
 Edit `~/.config/whisperdrop/config.toml` to change paths or transcription settings.
+
+### Extra folders (e.g. Downloads)
+
+`extra_watch_folders` are also watched, but treated differently: originals are
+**transcribed in place and never moved**. By default `~/Downloads` is watched for
+`.m4a`/`.qta` files. Files already sitting there when the service starts are left
+alone — only newly-arriving files are transcribed. Dedup for these folders is
+tracked in `~/.config/whisperdrop/processed.json`.
+
+### Transcript cleanup
+
+If the `claude` CLI is installed and `[cleanup] enabled = true` (the default), each
+transcript gets a light cleanup pass with the latest Sonnet — mainly turning
+`Speaker N` labels into real names when a speaker clearly identifies themselves, plus
+a feather-light grammar / obvious-mis-transcription touch-up (it leaves anything
+uncertain alone). `claude` writes the cleaned file itself: the cleaned `*.md` is
+canonical and the verbatim transcript is kept as `*.raw.md`.
+
+`claude` is granted **read-only** access to your Obsidian vault (`[cleanup] vault`,
+default `~/vault`) plus its own write tool, so it can resolve names/terms from your
+notes; anything else is denied, so the run stays unattended. Set `vault = ""` to keep
+cleanup a pure transform with no file access. It also picks up `~/.claude/CLAUDE.md`.
+
+Cleanup is best-effort: if `claude` is missing, times out, or doesn't produce a valid
+file, you just get the raw transcript. The notification fires once the canonical file
+is ready and (with `terminal-notifier` installed) reveals it in Finder when clicked.
 
 ## Commands
 
