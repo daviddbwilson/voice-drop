@@ -48,11 +48,12 @@ tracked in `~/.config/whisperdrop/processed.json`.
 ### Transcript cleanup
 
 If the `claude` CLI is installed and `[cleanup] enabled = true` (the default), each
-transcript gets a light cleanup pass with the latest Sonnet — mainly turning
-`Speaker N` labels into real names when a speaker clearly identifies themselves, plus
-a feather-light grammar / obvious-mis-transcription touch-up (it leaves anything
-uncertain alone). `claude` writes the cleaned file itself: the cleaned `*.md` is
-canonical and the verbatim transcript is kept as `*.raw.md`.
+transcript gets a light cleanup pass with the latest Sonnet — it merges the many
+tiny consecutive same-speaker turns that diarization produces, turns `Speaker N`
+labels into real names when a speaker clearly identifies themselves, and does a
+feather-light grammar / obvious-mis-transcription touch-up (leaving anything uncertain
+alone). `claude` writes the cleaned file itself: the cleaned `*.md` is canonical and
+the verbatim transcript is kept as `*.raw.md`.
 
 `claude` is granted **read-only** access to your Obsidian vault (`[cleanup] vault`,
 default `~/vault`) plus its own write tool, so it can resolve names/terms from your

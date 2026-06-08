@@ -36,12 +36,17 @@ addresses them by name, replace that "Speaker N" label with the person's name \
 everywhere that speaker appears. If there is ANY doubt about who a speaker is, leave \
 the original "Speaker N" label unchanged.
 
-2. Do an extremely light-touch pass on grammar and extremely probable transcription \
+2. Merge consecutive turns from the SAME speaker into one turn: concatenate their \
+text in order and keep the timestamp of the first turn in the run. Never merge across \
+a change of speaker, and never reorder turns. (This is the main thing that de-clutters \
+the transcript — diarization tends to split one person's speech into many tiny turns.)
+
+3. Do an extremely light-touch pass on grammar and extremely probable transcription \
 errors. However, when even in the slightest reasonable doubt, bias strongly toward \
 leaving things unchanged. A missed improvement is fine; a wrong guess — renaming the \
 wrong speaker, inventing a name, or switching an unfamiliar but correct term to an \
-incorrect one — is not. Do not summarise, do not remove content, do not merge or \
-reorder turns, do not change timestamps, and keep the frontmatter valid.
+incorrect one — is not. Do not summarise, do not drop spoken content, do not invent \
+timestamps, and keep the frontmatter valid.
 
 You may use names/context from the CLAUDE.md context you have as well as from the \
 Obsidian vault (in ~/vault) if you have been given read access to it."""
